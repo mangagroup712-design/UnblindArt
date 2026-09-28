@@ -1,0 +1,12 @@
+{
+  "name": "accessible-drawing-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "同一ネットワークで使う音声・触覚対応の描画アプリ",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
