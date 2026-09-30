@@ -203,6 +203,8 @@ h1 {
 .voice-actions {
     display: flex;
     gap: 7px;
+    width: 100%;
+    grid-column: 1 / -1;
 }
 
 .voice-actions > button {
@@ -219,14 +221,26 @@ h1 {
     font-weight: 900 !important;
     min-height: 88px !important;
     font-size: 25px !important;
-    border: 3px solid #14213d !important;
+    border: 3px solid #7c0000 !important;
+    background: #ffd5d5;
+    transition: background 0.1s, color 0.1s;
+}
+.voice-actions #describe {
+    background: cdddff;
+    font-weight: 900 !important;
+    color: #000;
+    border: 3px solid #00296f !important;
+    transition: background 0.1s, color 0.1s;
 }
 
-.listen.on {
-    background: #a31515;
+.listen.on{
+    background: #ff0000;
     color: #fff;
 }
-
+.voice-actions #describe.on{
+    background: #005eff;
+    color: #fff;
+}
 
 /* =========================
    コマンド入力
@@ -453,6 +467,10 @@ h1 {
     .panel #clear {
         width: 100%;
     }
+    .panel #describe {
+        background:#cdddff;
+        font-weight: 900 !important;
+        font-size: 25px !important;
 
 
     /* =====================
@@ -534,4 +552,5 @@ h1 {
         width: 38px;
         min-height: 38px;
     }
+}
 }

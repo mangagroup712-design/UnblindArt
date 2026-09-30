@@ -43,24 +43,28 @@ const server = http.createServer((req, res) => {
         const { image } = JSON.parse(body);
         const match = typeof image === 'string' && image.match(/^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/);
         if (!match || Buffer.from(match[2], 'base64').length > 1024 * 1024) throw new Error('画像データを読み取れません。');
-        const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
+        const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: '32x32ピクセルのキャンバスのドット絵です。何が描かれているか、概要と特徴を2文以内の短く自然な日本語で答えてください。回答テキストのみ出力（前置き不要）。回答のみ出力。マークダウン記号は使用しないこと。薄い灰色の格子線とオレンジ色のカーソル枠は描画ではないので無視してください。' }, { inline_data: { mime_type: match[1], data: match[2] } }] }],
+            contents: [{ parts: [{ text: 'これは32×32マスのドット絵です。何が描かれているか、画像で確認できる形と色を根拠に説明してください。最初に何に見えるかを簡潔に述べ、そのあと輪郭、色、配置などの特徴を簡潔に説明してください。小さな違いから断定しすぎず、判別が難しい場合はそのことも伝えてください。見えない細部や背景を作り足さず、回答文だけを出力してください。回答のみを出力し、マークダウン形式で記述しないようにしてください。3文程度で出力するように。' }, { inline_data: { mime_type: match[1], data: match[2] } }] }],
             generationConfig: {
-                maxOutputTokens: 150, // 2文字〜30文字程度の出力で十分なため絞り込む
+                maxOutputTokens: 150,
                 temperature: 0.1,
                 thinkingConfig: {
-                  thinkingBudget: 0
+                  thinkingLevel: 'low'
                 }
               }
             })
         });
         const data = await upstream.json();
         if (!upstream.ok) throw new Error(data.error?.message || 'Gemini API でエラーが発生しました。');
-        const description = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
-        if (!description) throw new Error('説明文を取得できませんでした。');
+        const candidate = data.candidates?.[0];
+        const description = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('').trim();
+        if (!description) {
+          const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
+          throw new Error(reason ? `Gemini が説明を返せませんでした（${reason}）。もう一度お試しください。` : 'Gemini から説明文が返りませんでした。もう一度お試しください。');
+        }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ description }));
       } catch (error) {
