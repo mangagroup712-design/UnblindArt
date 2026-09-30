@@ -163,8 +163,9 @@ h1 {
 }
 
 .pen {
+    width: 32px;
+    height: 32px;
     font-size: 23px;
-    min-height: 52px;
     padding: 2px;
 }
 
@@ -197,6 +198,16 @@ h1 {
 
 .panel button {
     width: 100%;
+}
+
+.voice-actions {
+    display: flex;
+    gap: 7px;
+}
+
+.voice-actions > button {
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 
@@ -449,9 +460,8 @@ h1 {
     ===================== */
 
     .listen {
-        min-height: 88px !important;
-        font-size: 30px !important;
-        width: 100%;
+        min-height: 58px !important;
+        font-size: 16px !important;
     }
 
 

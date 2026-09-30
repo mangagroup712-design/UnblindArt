@@ -8,6 +8,7 @@ const os = require('node:os');
 const HOST = '0.0.0.0';
 const PORT = Number(process.env.PORT) || 8080;
 const ROOT = __dirname;
+const MAX_BODY = 2 * 1024 * 1024;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -19,6 +20,56 @@ const TYPES = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/api/describe') {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'サーバーに GEMINI_API_KEY が設定されていません。' }));
+      return;
+    }
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => {
+      body += chunk;
+      if (Buffer.byteLength(body) > MAX_BODY) {
+        res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '画像データが大きすぎます。' }));
+        req.destroy();
+      }
+    });
+    req.on('end', async () => {
+      if (res.writableEnded) return;
+      try {
+        const { image } = JSON.parse(body);
+        const match = typeof image === 'string' && image.match(/^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/);
+        if (!match || Buffer.from(match[2], 'base64').length > 1024 * 1024) throw new Error('画像データを読み取れません。');
+        const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: '32x32ピクセルのキャンバスのドット絵です。何が描かれているか、概要と特徴を2文以内の短く自然な日本語で答えてください。回答テキストのみ出力（前置き不要）。回答のみ出力。マークダウン記号は使用しないこと。薄い灰色の格子線とオレンジ色のカーソル枠は描画ではないので無視してください。' }, { inline_data: { mime_type: match[1], data: match[2] } }] }],
+            generationConfig: {
+                maxOutputTokens: 150, // 2文字〜30文字程度の出力で十分なため絞り込む
+                temperature: 0.1,
+                thinkingConfig: {
+                  thinkingBudget: 0
+                }
+              }
+            })
+        });
+        const data = await upstream.json();
+        if (!upstream.ok) throw new Error(data.error?.message || 'Gemini API でエラーが発生しました。');
+        const description = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+        if (!description) throw new Error('説明文を取得できませんでした。');
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ description }));
+      } catch (error) {
+        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error.message || '画像を説明できませんでした。' }));
+      }
+    });
+    return;
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD' });
     res.end('Method Not Allowed');
