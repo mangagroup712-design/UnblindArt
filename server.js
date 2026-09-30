@@ -21,10 +21,11 @@ const TYPES = {
 
 const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/api/describe') {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    if (!accountId || !apiToken) {
       res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'サーバーに GEMINI_API_KEY が設定されていません。' }));
+      res.end(JSON.stringify({ error: 'サーバーに CLOUDFLARE_ACCOUNT_ID と CLOUDFLARE_API_TOKEN を設定してください。' }));
       return;
     }
     let body = '';
@@ -43,27 +44,26 @@ const server = http.createServer((req, res) => {
         const { image } = JSON.parse(body);
         const match = typeof image === 'string' && image.match(/^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/);
         if (!match || Buffer.from(match[2], 'base64').length > 1024 * 1024) throw new Error('画像データを読み取れません。');
-        const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent', {
+        const model = '@cf/meta/llama-3.2-11b-vision-instruct';
+        const upstream = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${model}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: 'これは32×32マスのドット絵です。何が描かれているか、画像で確認できる形と色を根拠に説明してください。最初に何に見えるかを簡潔に述べ、そのあと輪郭、色、配置などの特徴を簡潔に説明してください。小さな違いから断定しすぎず、判別が難しい場合はそのことも伝えてください。見えない細部や背景を作り足さず、回答文だけを出力してください。回答のみを出力し、マークダウン形式で記述しないようにしてください。3文程度で出力するように。' }, { inline_data: { mime_type: match[1], data: match[2] } }] }],
-            generationConfig: {
-                maxOutputTokens: 150,
-                temperature: 0.1,
-                thinkingConfig: {
-                  thinkingLevel: 'low'
-                }
-              }
-            })
+            prompt: 'この画像は32×32マスのドット絵です。何が描かれているか、見える形と色を根拠に、日本語で説明してください。最初に何に見えるかを短く述べ、続けて輪郭、色、配置などの特徴を説明してください。確信できない場合は断定せず、不明と伝えてください。見えない細部を作り足さず、回答文だけを出力してください。',
+            image,
+            max_tokens: 220,
+            temperature: 0.1
+          }),
+          signal: AbortSignal.timeout(60000)
         });
         const data = await upstream.json();
-        if (!upstream.ok) throw new Error(data.error?.message || 'Gemini API でエラーが発生しました。');
-        const candidate = data.candidates?.[0];
-        const description = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('').trim();
+        if (!upstream.ok || data.success === false) {
+          const details = data.errors?.map(item => item.message).filter(Boolean).join(' / ');
+          throw new Error(details || `Cloudflare Workers AI でエラーが発生しました（HTTP ${upstream.status}）。`);
+        }
+        const description = (data.result?.response || data.result?.description || '').trim();
         if (!description) {
-          const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
-          throw new Error(reason ? `Gemini が説明を返せませんでした（${reason}）。もう一度お試しください。` : 'Gemini から説明文が返りませんでした。もう一度お試しください。');
+          throw new Error('Cloudflare Workers AI から説明文が返りませんでした。もう一度お試しください。');
         }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ description }));
